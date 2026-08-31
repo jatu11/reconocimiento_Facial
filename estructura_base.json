@@ -1,0 +1,74 @@
+{
+  "Cursos": {
+    "CURSO_001": {
+      "nombre": "2do de Bachillerato - Paralelo A",
+      "camara_id": "CAM_001",
+      "estudiantes_registrados": {
+        "uuid_juan_perez": true,
+        "uuid_maria_lopez": true
+      }
+    },
+    "CURSO_002": {
+      "nombre": "2do de Bachillerato - Paralelo B",
+      "camara_id": "CAM_002",
+      "estudiantes_registrados": {
+        "uuid_carlos_zambrano": true
+      }
+    },
+    "CURSO_003": {
+      "nombre": "3ero de Bachillerato - Paralelo A",
+      "camara_id": "CAM_003",
+      "estudiantes_registrados": {
+        "uuid_ana_gomez": true
+      }
+    }
+  },
+
+  "Estudiantes": {
+    "uuid_juan_perez": {
+      "nombre": "Juan Perez",
+      "curso_id": "CURSO_001",
+      "representante_uid": "rep_123"
+    },
+    "uuid_maria_lopez": {
+      "nombre": "Maria Lopez",
+      "curso_id": "CURSO_001",
+      "representante_uid": "rep_124"
+    },
+    "uuid_carlos_zambrano": {
+      "nombre": "Carlos Zambrano",
+      "curso_id": "CURSO_002",
+      "representante_uid": "rep_125"
+    },
+    "uuid_ana_gomez": {
+      "nombre": "Ana Gomez",
+      "curso_id": "CURSO_003",
+      "representante_uid": "rep_126"
+    }
+  },
+
+  "Usuarios": {
+    "rep_123": {
+      "nombre": "Representante de Juan",
+      "fcm_token": "aqui_va_el_token_fcm_para_notificaciones"
+    },
+    "rep_124": {
+      "nombre": "Representante de Maria",
+      "fcm_token": ""
+    }
+  },
+
+  "Asistencia": {
+    "2026-08-31": {
+      "CURSO_001": {
+        "Hora_1": {
+          "uuid_juan_perez": {
+            "timestamp": 1725114000,
+            "estado": "Presente",
+            "metodo": "Reconocimiento Facial"
+          }
+        }
+      }
+    }
+  }
+}

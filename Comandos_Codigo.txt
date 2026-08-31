@@ -1,0 +1,18 @@
+Comandos necesarios para que el programa funcione
+1. Crear el entorno virtual
+python -m venv .venv
+2. Activar entorno virtual
+.\.venv\Scripts\Activate
+3.- Instalar dependencias
+pip install -r requirements.txt
+
+Comandos a ejecutar en la terminal para usar el programa
+No olvidar instalar la app IP webcam y cambiar la IP en utils/config.py por la que
+sale al inicar el servidor en IP webam
+
+4. Registrar un rostro:
+python main_register.py       
+5. Cargar rostro al modelo:
+python main_train.py
+6. Activar sistema de reconomiento
+python main_recognize.py 
