@@ -17,7 +17,6 @@ from pathlib import Path
 
 from src.capture.camera_stream import CameraStream
 from src.events.event_manager import EventManager
-from src.network.firebase_client import FirebaseClient
 from src.storage.file_manager import FileManager
 from src.training.trainer import ModelTrainer
 from src.utils.config import (
@@ -32,6 +31,7 @@ from src.utils.config import (
 from src.vision.recognition_engine import RecognitionEngine
 from src.vision.tracker import FaceTracker
 from src.vision.vision_engine import VisionEngine
+from src.network.supabase_client import SupabaseClient
 
 class FaceRecognitionGUI:
     def __init__(self, root):
@@ -184,7 +184,7 @@ class FaceRecognitionGUI:
         )
         
         self.event_manager = EventManager()
-        self.api_client = FirebaseClient() 
+        self.api_client = SupabaseClient() 
 
         # Hilo secundario para Firebase
         self.sender_thread = threading.Thread(target=self._event_sender_task, daemon=True)
@@ -210,47 +210,59 @@ class FaceRecognitionGUI:
         while self.running:
             time.sleep(1)
 
+
     def tomar_asistencia_demo(self, auto=False):
         hora_actual = self.hora_var.get()
         modo_str = "Automático" if auto else "Manual"
         print(f"\n[DEMO] 📸 Capturando asistencia ({modo_str}) para: {hora_actual}")
         
-        self.update_ui_state(f"Enviando Asistencia: {hora_actual}...", "#F1C40F")
+        # 1. Indicador visual de que está procesando
+        self.update_ui_state(f"Enviando Asistencia: {hora_actual}...", "#F1C40F") # Amarillo
         
-        # 1. Recolectar rostros activos directamente desde la caché del motor
+        # 2. Recolectar rostros activos
         asistencia_por_camara = {}
         for cache_key, data in self.recognition_engine.track_cache.items():
             uuid = data.get("identity_uuid", "unknown")
             if uuid not in ["unknown", "Desconocido", "Calculando..."]:
-                # Extraer el camera_id del cache_key (ej: "CAM_001_5")
                 partes = cache_key.split("_")
                 if len(partes) >= 2:
                     cam_id = f"{partes[0]}_{partes[1]}"
-                    
                     if cam_id not in asistencia_por_camara:
                         asistencia_por_camara[cam_id] = []
-                        
                     asistencia_por_camara[cam_id].append({
                         "uuid": uuid,
                         "confidence": data.get("confidence", 0.0)
                     })
 
-        # 2. Enviar a Firebase en un hilo separado
+        # 3. Enviar a Supabase en un hilo separado para no congelar el video
         threading.Thread(target=self._enviar_asistencia_batch, args=(hora_actual, asistencia_por_camara), daemon=True).start()
         
-        # 3. Reiniciar el temporizador y restaurar UI
         self.last_auto_scan_time = time.time()
-        self.root.after(2000, lambda: self.update_ui_state("Estado: Reconocimiento Activo", "#2ECC71"))
         
+        # Sonido de obturador/captura si es manual
         if platform.system() == "Windows" and not auto:
-            winsound.Beep(1200, 200)
+            winsound.Beep(1200, 150)
 
     def _enviar_asistencia_batch(self, hora_clase, datos_asistencia):
-        # Verificamos si el nuevo método ya existe en firebase_client.py
         if hasattr(self.api_client, 'registrar_asistencia_clase'):
-            self.api_client.registrar_asistencia_clase(hora_clase, datos_asistencia)
+            # Capturamos la respuesta (True o False)
+            exito = self.api_client.registrar_asistencia_clase(hora_clase, datos_asistencia)
+            
+            if exito:
+                # Alerta visual de éxito en Hilo Principal
+                self.root.after(0, lambda: self.update_ui_state("✅ ¡Asistencia Guardada!", "#00FF00")) # Verde brillante
+                if platform.system() == "Windows":
+                    winsound.Beep(1500, 300) # Sonido agudo de éxito
+            else:
+                # Alerta visual de error en Hilo Principal
+                self.root.after(0, lambda: self.update_ui_state("❌ Error de Conexión", "#FF0000")) # Rojo
+                if platform.system() == "Windows":
+                    winsound.Beep(500, 500) # Sonido grave de error
+                
+            # Restaurar el estado normal de la UI después de 3.5 segundos
+            self.root.after(3500, lambda: self.update_ui_state("Estado: Reconocimiento Activo", "#2ECC71"))
         else:
-            print("[ADVERTENCIA] Falta crear 'registrar_asistencia_clase' en firebase_client.py")
+            print("[ADVERTENCIA] El método de Supabase no fue encontrado.")
 
     def switch_camera(self, idx):
         self.active_camera_idx = idx
