@@ -1,24 +1,42 @@
-    # Entornos virtuales
-    .venv/
-    env/
-    ENV/
+# Entornos virtuales
+.venv/
+env/
+ENV/
 
-    # Archivos de caché de Python
-    __pycache__/
-    *.py[cod]
-    *$py.class
+# Archivos de caché de Python
+__pycache__/
+*.py[cod]
+*$py.class
 
-    # Credenciales y secretos
-    serviceAccountKey.json
-    .env
-    *.env
+# Credenciales y secretos
+serviceAccountKey.json
+.env
+*.env
 
-    # Directorios de datos (se ignoran los archivos internos, pero no la estructura)
-    data/dataset/*
-    !data/dataset/.gitkeep
-    data/models/*
-    !data/models/.gitkeep
+# Directorios de datos (se ignoran los archivos internos, pero no la estructura)
+data/dataset/*
+!data/dataset/.gitkeep
+data/models/*
+!data/models/.gitkeep
 
-    # Configuraciones locales de SO
-    .DS_Store
-    Thumbs.db
+# Configuraciones locales de SO
+.DS_Store
+Thumbs.db
+
+# Entornos Virtuales
+venv/
+env/
+.venv/
+
+# Caché de Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Secretos
+.env
+
+# Datasets e Imágenes (Para no saturar Git con fotos de prueba)
+dataset/
+*.jpg
+*.png

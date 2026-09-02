@@ -18,8 +18,8 @@ CAMERA_SOURCES = [
         "nombre": "CAMARA 1",
         "src": 0, # 0 para la cámara web principal de la laptop
         "ubicacion": {
-            "latitude": -2.128589, 
-            "longitude": -79.931099
+            "latitude": -2.129581, 
+            "longitude": -79.931084
         }
     },
     {
@@ -27,8 +27,8 @@ CAMERA_SOURCES = [
         "nombre": "CAMARA 2",
         "src": 1, # 1 para una segunda cámara USB, o "http://IP_DE_CAMARA/video" para cámaras web
         "ubicacion": {
-            "latitude": -2.128650, 
-            "longitude": -79.931200
+            "latitude": -2.128589, 
+            "longitude": -79.931099
         }
     }
 ]

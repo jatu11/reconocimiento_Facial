@@ -53,13 +53,13 @@ class SupabaseClient:
 
     def registrar_asistencia_clase(self, hora_clase: str, datos_asistencia: dict):
         """
-        Descarga la relación de estudiantes y envía en lote (batch insert) la asistencia.
-        Calcula estados: Presente, Falta, Fugado e Intruso.
+        Las cámaras actúan de forma 100% independiente.
+        Cada cámara procesa su lista y la envía a la base de datos por separado.
         """
         try:
             hoy = datetime.now().strftime("%Y-%m-%d")
             
-            # 1. Traer datos base y el historial de HOY para detectar fugados
+            # 1. Traer datos base
             req_cursos = requests.get(f"{self.base_url}/cursos?select=id,camara_id", headers=self.headers)
             req_estudiantes = requests.get(f"{self.base_url}/estudiantes?select=cedula,curso_id", headers=self.headers)
             req_asistencia_hoy = requests.get(f"{self.base_url}/asistencia?fecha=eq.{hoy}&estado=eq.Presente", headers=self.headers)
@@ -68,27 +68,27 @@ class SupabaseClient:
             estudiantes = req_estudiantes.json() if req_estudiantes.status_code == 200 else []
             asistencia_hoy = req_asistencia_hoy.json() if req_asistencia_hoy.status_code == 200 else []
             
-            # Mapeos en memoria para cruce ultrarrápido
             cam_to_curso = {c["camara_id"]: c["id"] for c in cursos if c.get("camara_id")}
             curso_to_estudiantes = {}
+            todas_las_cedulas = set()
+            
             for e in estudiantes:
                 curso_to_estudiantes.setdefault(e["curso_id"], []).append(e["cedula"])
+                todas_las_cedulas.add(e["cedula"])
                 
-            # Set de cédulas que ya vinieron a clases hoy (para marcar fugados)
             presentes_previos = {registro["estudiante_cedula"] for registro in asistencia_hoy}
 
-            asistencia_batch = []
-
-            # 2. Lógica deductiva
+            # 2. PROCESAR Y ENVIAR POR SEPARADO CADA CÁMARA
             for cam_id, detected_list in datos_asistencia.items():
                 curso_id = cam_to_curso.get(cam_id)
                 if not curso_id:
                     continue
                 
+                asistencia_camara = [] # Lista exclusiva para esta cámara
+                detected_cedulas = set(d["uuid"] for d in detected_list if d["uuid"] not in ["unknown", "Desconocido"])
                 enrolled_cedulas = curso_to_estudiantes.get(curso_id, [])
-                detected_cedulas = [d["uuid"] for d in detected_list if d["uuid"] not in ["unknown", "Desconocido"]]
                 
-                # Evaluar matriculados (Presentes, Faltas, Fugados)
+                # A. Evaluar matriculados de ESTA cámara
                 for cedula in enrolled_cedulas:
                     if cedula in detected_cedulas:
                         estado = "Presente"
@@ -97,7 +97,7 @@ class SupabaseClient:
                     else:
                         estado = "Falta"
                         
-                    asistencia_batch.append({
+                    asistencia_camara.append({
                         "estudiante_cedula": cedula,
                         "curso_id": curso_id,
                         "fecha": hoy,
@@ -105,11 +105,13 @@ class SupabaseClient:
                         "estado": estado
                     })
                 
-                # Evaluar Intrusos
-                for d in detected_list:
-                    cedula = d["uuid"]
-                    if cedula not in enrolled_cedulas and cedula not in ["unknown", "Desconocido"]:
-                        asistencia_batch.append({
+                # B. Evaluar Intrusos de ESTA cámara
+                for cedula in detected_cedulas:
+                    if cedula not in todas_las_cedulas:
+                        continue # Bloquear fantasmas
+                        
+                    if cedula not in enrolled_cedulas:
+                        asistencia_camara.append({
                             "estudiante_cedula": cedula,
                             "curso_id": curso_id,
                             "fecha": hoy,
@@ -117,26 +119,20 @@ class SupabaseClient:
                             "estado": "Intruso"
                         })
 
-            # 3. Enviar todo en una sola petición (Batch UPSERT HTTP POST)
-            if asistencia_batch:
-                # Añadimos on_conflict para indicar qué columnas forman la regla de duplicados
-                insert_url = f"{self.base_url}/asistencia?on_conflict=estudiante_cedula,fecha,hora_clase"
-                headers = self.headers.copy()
-                
-                # merge-duplicates actúa como un UPSERT: actualiza si ya existe, inserta si es nuevo
-                headers["Prefer"] = "resolution=merge-duplicates,return=minimal"
-                
-                res = requests.post(insert_url, headers=headers, json=asistencia_batch)
-                if res.status_code in (201, 204):
-                    logging.info(f"[FERIA] Asistencia registrada/actualizada exitosamente para {hora_clase}.")
-                    return True
-                else:
-                    logging.error(f"[ERROR] Supabase rechazó el registro: {res.text}")
-                    return False
-            else:
-                logging.info(f"[FERIA] No hubo datos válidos para registrar en {hora_clase}.")
-                return True
+                # C. ENVIAR INMEDIATAMENTE A SUPABASE (Solo los datos de esta cámara)
+                if asistencia_camara:
+                    insert_url = f"{self.base_url}/asistencia?on_conflict=estudiante_cedula,fecha,hora_clase,curso_id"
+                    headers = self.headers.copy()
+                    headers["Prefer"] = "resolution=merge-duplicates,return=minimal"
+                    
+                    res = requests.post(insert_url, headers=headers, json=asistencia_camara)
+                    if res.status_code in (200, 201, 204):
+                        logging.info(f"[FERIA] {cam_id} registró su asistencia en {hora_clase} exitosamente.")
+                    else:
+                        logging.error(f"[ERROR] Falló {cam_id}: {res.text}")
+
+            return True 
                 
         except Exception as e:
-            logging.error(f"[FERIA] Error al registrar asistencia por clase: {e}")
+            logging.error(f"[FERIA] Error al registrar asistencia: {e}")
             return False

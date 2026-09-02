@@ -348,10 +348,10 @@ class FaceRecognitionGUI:
             cv2.putText(display_frame, "VISTA GENERAL", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2)
 
         # --- LÓGICA DEL TEMPORIZADOR AUTOMÁTICO ---
-        if self.mode == "RECOGNIZE":
+        """ if self.mode == "RECOGNIZE":
             tiempo_transcurrido = time.time() - self.last_auto_scan_time
             if tiempo_transcurrido >= self.intervalo_var.get():
-                self.tomar_asistencia_demo(auto=True)
+                self.tomar_asistencia_demo(auto=True) """
         # ------------------------------------------
 
         if display_frame is not None:
