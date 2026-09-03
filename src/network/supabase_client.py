@@ -54,7 +54,8 @@ class SupabaseClient:
     def registrar_asistencia_clase(self, hora_clase: str, datos_asistencia: dict):
         """
         Las cámaras actúan de forma 100% independiente.
-        Cada cámara procesa su lista y la envía a la base de datos por separado.
+        Lógica: Permite sobreescribir la misma hora, pero rastrea si el alumno 
+                estuvo en el campus hoy para marcar "Fugado" en las horas siguientes.
         """
         try:
             hoy = datetime.now().strftime("%Y-%m-%d")
@@ -62,7 +63,9 @@ class SupabaseClient:
             # 1. Traer datos base
             req_cursos = requests.get(f"{self.base_url}/cursos?select=id,camara_id", headers=self.headers)
             req_estudiantes = requests.get(f"{self.base_url}/estudiantes?select=cedula,curso_id", headers=self.headers)
-            req_asistencia_hoy = requests.get(f"{self.base_url}/asistencia?fecha=eq.{hoy}&estado=eq.Presente", headers=self.headers)
+            
+            # CRÍTICO: Traemos TODA la asistencia de hoy, sin importar el estado
+            req_asistencia_hoy = requests.get(f"{self.base_url}/asistencia?fecha=eq.{hoy}", headers=self.headers)
             
             cursos = req_cursos.json() if req_cursos.status_code == 200 else []
             estudiantes = req_estudiantes.json() if req_estudiantes.status_code == 200 else []
@@ -76,7 +79,11 @@ class SupabaseClient:
                 curso_to_estudiantes.setdefault(e["curso_id"], []).append(e["cedula"])
                 todas_las_cedulas.add(e["cedula"])
                 
-            presentes_previos = {registro["estudiante_cedula"] for registro in asistencia_hoy}
+            # NUEVO: ¿Quiénes han pisado el colegio hoy? (Presentes o Fugados previos)
+            alumnos_en_campus_hoy = set()
+            for registro in asistencia_hoy:
+                if registro["estado"] in ["Presente", "Fugado"]:
+                    alumnos_en_campus_hoy.add(registro["estudiante_cedula"])
 
             # 2. PROCESAR Y ENVIAR POR SEPARADO CADA CÁMARA
             for cam_id, detected_list in datos_asistencia.items():
@@ -84,17 +91,20 @@ class SupabaseClient:
                 if not curso_id:
                     continue
                 
-                asistencia_camara = [] # Lista exclusiva para esta cámara
+                asistencia_camara = [] 
                 detected_cedulas = set(d["uuid"] for d in detected_list if d["uuid"] not in ["unknown", "Desconocido"])
                 enrolled_cedulas = curso_to_estudiantes.get(curso_id, [])
                 
                 # A. Evaluar matriculados de ESTA cámara
                 for cedula in enrolled_cedulas:
                     if cedula in detected_cedulas:
+                        # Si lo veo ahora mismo en cámara: Presente
                         estado = "Presente"
-                    elif cedula in presentes_previos:
+                    elif cedula in alumnos_en_campus_hoy:
+                        # No lo veo, pero SÍ pisó el colegio hoy: Fugado
                         estado = "Fugado"
                     else:
+                        # No lo veo, y nunca llegó hoy: Falta
                         estado = "Falta"
                         
                     asistencia_camara.append({
@@ -108,7 +118,7 @@ class SupabaseClient:
                 # B. Evaluar Intrusos de ESTA cámara
                 for cedula in detected_cedulas:
                     if cedula not in todas_las_cedulas:
-                        continue # Bloquear fantasmas
+                        continue 
                         
                     if cedula not in enrolled_cedulas:
                         asistencia_camara.append({
@@ -119,7 +129,7 @@ class SupabaseClient:
                             "estado": "Intruso"
                         })
 
-                # C. ENVIAR INMEDIATAMENTE A SUPABASE (Solo los datos de esta cámara)
+                # C. ENVIAR INMEDIATAMENTE A SUPABASE
                 if asistencia_camara:
                     insert_url = f"{self.base_url}/asistencia?on_conflict=estudiante_cedula,fecha,hora_clase,curso_id"
                     headers = self.headers.copy()

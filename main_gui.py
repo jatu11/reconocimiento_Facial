@@ -212,36 +212,38 @@ class FaceRecognitionGUI:
 
 
     def tomar_asistencia_demo(self, auto=False):
-        hora_actual = self.hora_var.get()
-        modo_str = "Automático" if auto else "Manual"
-        print(f"\n[DEMO] 📸 Capturando asistencia ({modo_str}) para: {hora_actual}")
-        
-        # 1. Indicador visual de que está procesando
-        self.update_ui_state(f"Enviando Asistencia: {hora_actual}...", "#F1C40F") # Amarillo
-        
-        # 2. Recolectar rostros activos
-        asistencia_por_camara = {}
-        for cache_key, data in self.recognition_engine.track_cache.items():
-            uuid = data.get("identity_uuid", "unknown")
-            if uuid not in ["unknown", "Desconocido", "Calculando..."]:
-                partes = cache_key.split("_")
-                if len(partes) >= 2:
-                    cam_id = f"{partes[0]}_{partes[1]}"
-                    if cam_id not in asistencia_por_camara:
-                        asistencia_por_camara[cam_id] = []
-                    asistencia_por_camara[cam_id].append({
-                        "uuid": uuid,
-                        "confidence": data.get("confidence", 0.0)
-                    })
+            hora_actual = self.hora_var.get()
+            modo_str = "Automático" if auto else "Manual"
+            print(f"\n[DEMO] 📸 Capturando asistencia ({modo_str}) para: {hora_actual}")
+            
+            self.update_ui_state(f"Enviando Asistencia: {hora_actual}...", "#F1C40F")
+            
+            active_camera_ids = []
+            if self.view_mode == "SINGLE":
+                active_camera_ids = [self.streams[self.active_camera_idx].camera_id]
+            elif self.view_mode == "GRID":
+                active_camera_ids = [s.camera_id for s in self.streams]
 
-        # 3. Enviar a Supabase en un hilo separado para no congelar el video
-        threading.Thread(target=self._enviar_asistencia_batch, args=(hora_actual, asistencia_por_camara), daemon=True).start()
-        
-        self.last_auto_scan_time = time.time()
-        
-        # Sonido de obturador/captura si es manual
-        if platform.system() == "Windows" and not auto:
-            winsound.Beep(1200, 150)
+            # Pre-llenamos con listas vacías (Garantiza que se envíen las "Faltas" si no hay nadie)
+            asistencia_por_camara = {cam_id: [] for cam_id in active_camera_ids}
+            
+            # --- LEER ESTRICTAMENTE DE LA MEMORIA EN VIVO ---
+            if hasattr(self, 'rostros_en_vivo'):
+                for cam_id in active_camera_ids:
+                    uuids_activos = self.rostros_en_vivo.get(cam_id, set())
+                    for uuid in uuids_activos:
+                        asistencia_por_camara[cam_id].append({
+                            "uuid": uuid,
+                            "confidence": 100.0
+                        })
+            # ------------------------------------------------
+
+            threading.Thread(target=self._enviar_asistencia_batch, args=(hora_actual, asistencia_por_camara), daemon=True).start()
+            
+            self.last_auto_scan_time = time.time()
+            
+            if platform.system() == "Windows" and not auto:
+                winsound.Beep(1200, 150)
 
     def _enviar_asistencia_batch(self, hora_clase, datos_asistencia):
         if hasattr(self.api_client, 'registrar_asistencia_clase'):
@@ -384,15 +386,27 @@ class FaceRecognitionGUI:
         stream = self.streams[stream_idx]
         camera_id = stream.camera_id
 
+        # 1. Crear diccionarios de memoria en vivo si no existen
+        if not hasattr(self, 'rostros_en_vivo'):
+            self.rostros_en_vivo = {}
+        if not hasattr(self, 'last_faces_per_cam'):
+            self.last_faces_per_cam = {}
+
         self.frame_counter = (self.frame_counter + 1) % 100000
 
+        # Procesar IA saltando frames para no saturar el PC
         if self.frame_counter % self.process_every_n_frames == 0:
             context = self.vision_engine.detect(frame)
             context = self.tracker.update(context)
             context = self.recognition_engine.process(frame, context, self.vision_engine, camera_id)
-            self.last_faces = context.faces 
+            # Guardamos las caras exclusivamente para ESTA cámara
+            self.last_faces_per_cam[camera_id] = context.faces 
 
-        for face in self.last_faces:
+        # Recuperar el último frame procesado de esta cámara
+        caras_actuales = self.last_faces_per_cam.get(camera_id, [])
+        uuids_en_pantalla = set()
+
+        for face in caras_actuales:
             confidence = getattr(face, "confidence", 0.0)
             identity = getattr(face, "identity_uuid", "Calculando...")
 
@@ -402,13 +416,16 @@ class FaceRecognitionGUI:
                 color = (255, 255, 0)
             else:
                 color = (0, 255, 0)
-                # NOTA: Se eliminó el envío continuo a 'event_manager' para 
-                # dar paso a la captura manual/temporizada de la feria.
+                # ¡AQUÍ ESTÁ LA MAGIA! Si está en verde, lo guardamos en la memoria en vivo
+                uuids_en_pantalla.add(identity)
 
             cv2.rectangle(display_frame, (int(face.left), int(face.top)), (int(face.right), int(face.bottom)), color, 2)
             display_id = identity[:15] if len(identity) > 15 else identity
             label = f"{display_id} ({confidence:.1f}%)" if confidence > 0 else f"{display_id}"
             cv2.putText(display_frame, label, (int(face.left), int(face.top) - 8), cv2.FONT_HERSHEY_SIMPLEX, 0.55, color, 2)
+
+        # 2. Refrescar la memoria en vivo (Si te vas, la lista queda vacía instantáneamente)
+        self.rostros_en_vivo[camera_id] = uuids_en_pantalla
 
         return display_frame
 
